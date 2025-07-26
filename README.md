@@ -4,6 +4,8 @@
 
 AvaTaR is a novel and automatic framework that optimizes an LLM agent to effectively use the provided tools and improve its performance on a given task/domain. During optimization, we design a comparator module to iteratively provide insightful and holistic prompts to the LLM agent via reasoning between positive and negative examples sampled from training data.
 
+**Supported LLM APIs**: OpenAI GPT models, Anthropic Claude models, and Google Gemini/Gemma models (gemma-2-27b-it, gemma-2-9b-it, gemini-1.5-flash, gemini-1.5-pro).
+
 ## News
 
 [July 2024] 🔥 Avatar is integrated into [DSPy](https://github.com/stanfordnlp/dspy) - Credit to Herumb Shandilya! You can try out [the example on jupyter notebook](https://github.com/stanfordnlp/dspy/blob/avatar-optimization-integration/examples/agents/avatar_langchain_tools.ipynb).
@@ -81,6 +83,9 @@ pip install stark-qa typeguard
     ```bash
     export OPENAI_API_KEY=YOUR_API_KEY
     export OPENAI_ORG=YOUR_ORGANIZATION
+    ```
+    ```bash
+    export GEMINI_API_KEY=YOUR_API_KEY
     ```
 - Embeddings: Download all embeddings by running the following script:
   ```bash

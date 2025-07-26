@@ -455,6 +455,36 @@ class React(ModelForQA):
                     }
                 else:
                     raise ValueError(f"Type {param_type} not supported")
+        elif 'gemma' in model_name or 'gemini' in model_name:
+            # Use same format as Claude for Gemini models
+            type_des = {}
+            mappings = {
+                    'int': "integer",
+                    'str': "string",
+                    'torch.Tensor': "integer"
+                }
+            for param_name, param_type in param_info.items():
+                if param_type in ['List[str]', 'Union[str, List[str]]', 'List[PIL.Image.Image]']:
+                    type_des[param_name] = {'type': 'array', 'items': {"type": "string"}, 'description': " ", "minItems": 1}
+                elif param_type in ['List[int]', 'List[float]', 'Union[int, List[int]]', 'torch.FloatTensor']:
+                    type_des[param_name] = {'type': 'array', 'items': {"type": "integer"}, 'description': " ", "minItems": 1}
+                elif param_type in ['int', 'str', 'torch.Tensor']:
+                    param_type = mappings.get(param_type, param_type)
+                    type_des[param_name] = {'type': param_type, 'description': " "}
+                elif param_type == 'List[Dict[str, str]]':
+                    type_des[param_name] = {
+                        'type': 'array',
+                        'items': {
+                            'type': 'object',
+                            'additionalProperties': {
+                                'type': 'string'
+                            }
+                        },
+                        'description': " ",
+                        'minItems': 1
+                    }
+                else:
+                    raise ValueError(f"Type {param_type} not supported")
         else:
             raise ValueError(f"Model {model_name} not supported")    
         return func_name, param_dict, type_des
@@ -474,6 +504,18 @@ class React(ModelForQA):
             else:
                 tool_path = 'avatar/tools/react/tool_lists.json'
             prompt, tool_list = self._get_prompt_claude(
+                env=env, 
+                tool_path=tool_path, 
+                model_name=model_name,
+                dataset=self.dataset,
+                in_context_examples=in_context_examples
+            )
+        elif 'gemma' in model_name or 'gemini' in model_name:
+            if self.vision:
+                tool_path = 'avatar/tools/react/tool_lists_vision.json'
+            else:
+                tool_path = 'avatar/tools/react/tool_lists.json'
+            prompt, tool_list = self._get_prompt_gemini(
                 env=env, 
                 tool_path=tool_path, 
                 model_name=model_name,
@@ -583,6 +625,78 @@ class React(ModelForQA):
     def extract_integers(self, text):
         numbers = re.findall(r'\d+', text)
         return [int(number) for number in numbers]
+
+    def _get_prompt_gemini(self, env, tool_path, model_name, dataset, in_context_examples=None, **kwargs):
+        if dataset == 'flickr30k_entities':
+            prompt_path = "avatar/prompts/react_prompt_gemini_flickr.txt"
+            if os.path.exists(prompt_path):
+                prompt = open(prompt_path, "r").read()
+            else:
+                # Fallback to Claude prompt for now
+                prompt_path = "avatar/prompts/react_prompt_claude_flickr.txt"
+                prompt = open(prompt_path, "r").read()
+        else:
+            if in_context_examples is not None:
+                prompt_path = "avatar/prompts/react_prompt_gemini_in_context.txt"
+                if os.path.exists(prompt_path):
+                    prompt = open(prompt_path, "r").read()
+                    prompt = prompt.replace("<in_context_examples>", str(in_context_examples))
+                else:
+                    # Fallback to Claude prompt
+                    prompt_path = "avatar/prompts/react_prompt_claude_in_context.txt"
+                    prompt = open(prompt_path, "r").read()
+                    prompt = prompt.replace("<in_context_examples>", str(in_context_examples))
+            else:
+                prompt_path = "avatar/prompts/react_prompt_gemini.txt"
+                if os.path.exists(prompt_path):
+                    prompt = open(prompt_path, "r").read()
+                else:
+                    # Fallback to Claude prompt for now
+                    prompt_path = "avatar/prompts/react_prompt_claude.txt"
+                    prompt = open(prompt_path, "r").read()
+            
+            prompt = prompt.replace("<node_types>", str(self.database.node_type_lst()))
+            prompt = prompt.replace("<edge_types>", str(self.database.rel_type_lst()))
+            prompt = prompt.replace("<relational_tuples>", str(self.database.get_tuples()))
+            prompt = prompt.replace("<node_attr_dict>", str(self.database.node_attr_dict))
+
+        print(f"In total {len(env.APIs.values())} API tools")
+        if os.path.exists(tool_path):
+            tool_list = json.load(open(tool_path, "r"))
+            return prompt, tool_list
+        
+        tool_list = []
+        print('Please handwrite the tool list parameters description for now!')
+        for func in env.APIs.values():
+            func_dict = {}
+            func_signature = func.__str__().split("->")[0]
+            print(f"{func_signature=}")
+            function_name, param_dict, type_description = self.extract_function_details(func_signature, model_name)
+            func_dict["name"] = function_name
+            func_dict["description"] = func.description
+            input_schema_dict = {}
+            input_schema_dict["type"] = "object"
+            input_schema_dict["properties"] = type_description
+            input_schema_dict["required"] = list(type_description.keys())
+            func_dict["input_schema"] = input_schema_dict
+            tool_list.append(func_dict)
+        
+        if not os.path.exists(tool_path):
+            json.dump(tool_list, open(tool_path, "w"), indent=4)
+            print(f"Tool list saved to {tool_path}!")
+        
+        dataset_description = ''
+        if self.dataset == 'amazon':
+            dataset_description = "amazon products"
+        elif self.dataset == 'mag':
+            dataset_description = "microsoft academic graph"
+        elif self.dataset == 'primekg':
+            dataset_description = "biomedical knowledge graph" 
+        elif self.dataset == 'flickr30k_entities':
+            dataset_description = "flickr30k image text dataset"
+        prompt = prompt.replace("<dataset_description>", dataset_description)
+        print(f'{dataset_description=}')
+        return prompt, tool_list
     
     def claude_execute(self, env, contents, thought_action, prompt):
         done = False
@@ -626,6 +740,49 @@ class React(ModelForQA):
             prompt += 'Exceeds max tokens, retry'
         else:
             raise ValueError(f"Stop reason {thought_action['stop_reason']} not supported")
+        return user_execution_feedback, final_answers, done, prompt, info
+    
+    def gemini_execute(self, env, contents, thought_action, prompt):
+        done = False
+        final_answers = None
+        user_execution_feedback = []
+        info = {}
+        
+        # Handle Gemini response format similar to Claude
+        if thought_action.get('stop_reason') == 'tool_use':
+            for content in contents:
+                if content['type'] == 'tool_use':
+                    tool_name = content['name']
+                    tool_args = content['input']
+                    print(f"Tool use: {tool_name} with arguments: {tool_args}")
+                    
+                    func_name, result, result_list, result_str = env.use_tool(tool_name, tool_args)
+                    user_execution_feedback.append(f"Tool use: {func_name} with arguments: {tool_args}")
+                    user_execution_feedback.append(f"Result: {result_str}")
+                    
+                    if func_name == "get_final_answer" and result is not None:
+                        final_answers = result
+                        user_execution_feedback.append(f"Final answer: {final_answers}")
+                        done = True
+                        break
+                elif content['type'] == 'text':
+                    user_execution_feedback.append(f"Thought: {content['text']}")
+            
+            prompt += f"\n\nUser: {user_execution_feedback}"
+            
+        elif thought_action.get('stop_reason') == 'end_turn':
+            # No tool use, just continue
+            for content in contents:
+                if content['type'] == 'text':
+                    user_execution_feedback.append(f"Thought: {content['text']}")
+            prompt += f"\n\nUser: {user_execution_feedback}"
+            
+        elif thought_action.get('stop_reason') == 'max_tokens':
+            prompt += 'Exceeds max tokens, retry'
+        else:
+            stop_reason = thought_action.get('stop_reason', 'unknown')
+            raise ValueError(f"Stop reason {stop_reason} not supported")
+        
         return user_execution_feedback, final_answers, done, prompt, info
     
     def gpt_execute(self, env, thought_action, prompt):
@@ -693,6 +850,40 @@ class React(ModelForQA):
                 user_execution_feedback = []
                 try:
                     user_execution_feedback, final_answers, done, prompt, info = self.claude_execute(env, contents, thought_action, prompt)
+                except:
+                    print('execution failed')
+                    prompt += 'Last execution failed! Please retry'
+                    step -= 1
+                    if n_calls > max_call:
+                        print('Exceeds max call limit! Failed to analyze the question')
+                        break
+                    continue
+
+                if step == 1:
+                    history = [
+                        {"role": "user", "content": prompt},
+                        {"role": "assistant", "content": str(contents)},
+                    ]
+                else:
+                    history.append({"role": "user", "content": prompt})
+                    history.append({"role": "assistant", "content": str(contents)})
+                    
+                prompt = str(user_execution_feedback)
+
+            elif 'gemma' in model_name or 'gemini' in model_name:
+                # print(f'{prompt=}')
+                thought_action = get_llm_output_tools(
+                    prompt, tools=tool_list, model=model_name, history=history, return_raw=True, json_object=True
+                )
+                print(f'{thought_action=}')
+                
+                # Handle Gemini response format
+                if hasattr(thought_action, 'to_dict'):
+                    thought_action = thought_action.to_dict()
+                contents = thought_action.get("content", thought_action.get("parts", []))
+                user_execution_feedback = []
+                try:
+                    user_execution_feedback, final_answers, done, prompt, info = self.gemini_execute(env, contents, thought_action, prompt)
                 except:
                     print('execution failed')
                     prompt += 'Last execution failed! Please retry'
