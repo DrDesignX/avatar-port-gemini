@@ -4,7 +4,7 @@
 
 AvaTaR is a novel and automatic framework that optimizes an LLM agent to effectively use the provided tools and improve its performance on a given task/domain. During optimization, we design a comparator module to iteratively provide insightful and holistic prompts to the LLM agent via reasoning between positive and negative examples sampled from training data.
 
-**Supported LLM APIs**: OpenAI GPT models, Anthropic Claude models, and Google Gemini/Gemma models (gemma-2-27b-it, gemma-2-9b-it, gemini-1.5-flash, gemini-1.5-pro).
+**Supported LLM APIs**: OpenAI GPT models, Anthropic Claude models, and Google Gemini/Gemma models (gemma-3-27b-it, gemma-2-9b-it, gemini-1.5-flash, gemini-1.5-pro).
 
 ## News
 

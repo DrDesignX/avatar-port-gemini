@@ -26,7 +26,7 @@ registered_text_completion_llms = {
     "claude-3-sonnet-20240229", 
     "claude-3-haiku-20240307",
     "huggingface/codellama/CodeLlama-7b-hf",
-    "gemma-2-27b-it",
+    "gemma-3-27b-it",
     "gemma-2-9b-it",
     "gemini-1.5-flash",
     "gemini-1.5-pro"
@@ -138,7 +138,7 @@ def complete_text_claude(message,
     raise e
 
 def complete_text_gemini(message, 
-                        model="gemma-2-27b-it",
+                        model="gemma-3-27b-it",
                         json_object=False,
                         max_tokens=2048, 
                         temperature=1, 
